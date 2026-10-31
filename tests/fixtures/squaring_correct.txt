@@ -1,0 +1,6 @@
+% Textbook radical equation: square, solve, reject the extraneous root
+\sqrt{x+3} = x - 3
+x + 3 = (x - 3)^2
+x^2 - 7x + 6 = 0
+x = 1 \text{ or } x = 6
+x = 6
