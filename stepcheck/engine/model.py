@@ -32,8 +32,9 @@ MathObject = Expression | Equation | Disjunction
 class Step:
     line_no: int  # 1-based, as the student sees it
     latex: str
-    parsed: MathObject | None
+    parsed: MathObject | None  # evaluated: used for checking
     parse_error: str | None = None
+    raw: MathObject | None = None  # unevaluated, as the student wrote it: used for diagnosis
 
 
 class Verdict(Enum):
@@ -77,6 +78,30 @@ class StepCheck:
     is_error: bool = False  # set by the checker: an EXTRA step's fate depends on later lines
 
 
+class ErrorType(Enum):
+    SIGN_ERROR = "sign_error"
+    PARTIAL_DISTRIBUTION = "partial_distribution"  # a(b + c) -> ab + c
+    POWER_OF_SUM = "power_of_sum"  # (a + b)^2 -> a^2 + b^2
+    INVALID_CANCELLATION = "invalid_cancellation"  # (x + 2)/x -> 2
+    MOVED_TERM_NO_SIGN_CHANGE = "moved_term_no_sign_change"
+    INVERSE_OPERATION = "inverse_operation"  # 2x = 6 -> x = 6 - 2
+    ARITHMETIC_SLIP = "arithmetic_slip"
+    DIVIDED_BY_ZERO_EXPRESSION = "divided_by_zero_expression"  # divided both sides by x
+    MISSING_PLUS_MINUS = "missing_plus_minus"  # x^2 = 4 -> x = 2
+    EXTRANEOUS_NOT_REJECTED = "extraneous_not_rejected"
+    UNCLASSIFIED = "unclassified"
+
+
+@dataclass(frozen=True)
+class Diagnosis:
+    error_type: ErrorType
+    line: int
+    explanation: str
+    term: str | None = None  # LaTeX of the part of the work where the mistake happened
+    expected: str | None = None  # LaTeX of what the line should have been
+    alternatives: tuple[ErrorType, ...] = ()  # other explanations that also fit
+
+
 Status = Literal["correct", "error", "incomplete", "unverified"]
 
 
@@ -88,3 +113,4 @@ class CheckResult:
     first_error: int | None  # line number of the first wrong line, if it can be pinned down
     # First line vs last line; only run when some step could not be verified.
     final_check: StepCheck | None = None
+    diagnosis: Diagnosis | None = None

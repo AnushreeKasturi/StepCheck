@@ -94,7 +94,13 @@ def _summary(result: CheckResult) -> str:
         case "incomplete":
             return "Result: INCOMPLETE - every step is valid, but the final line is not solved."
         case "error" if result.first_error is not None:
-            return f"Result: ERROR - the first mistake is on line {result.first_error}."
+            headline = f"Result: ERROR - the first mistake is on line {result.first_error}."
+            if result.diagnosis is None:
+                return headline
+            kind = result.diagnosis.error_type.value.replace("_", " ")
+            # $...$ marks LaTeX for the web UI; in a terminal it is just noise.
+            explanation = result.diagnosis.explanation.replace("$", "")
+            return f"{headline}\n[{kind}] {explanation}"
         case "error":
             assert result.final_check is not None
             return (

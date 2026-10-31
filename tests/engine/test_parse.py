@@ -108,3 +108,20 @@ def test_multiple_variables_parse_fine() -> None:
     # The single-variable rule is enforced for the whole solution, in the checker.
     step = parse_line("x + y", 1)
     assert step.parsed is not None
+
+
+def test_regression_raw_parse_works_as_first_call_in_fresh_process() -> None:
+    # Bug: parse_latex lazily imports sympy.physics, which crashed when the first call was
+    # made inside sp.evaluate(False). Needs a fresh interpreter to reproduce.
+    import subprocess
+    import sys
+
+    code = "from stepcheck.engine.parse import parse_math; parse_math('5-(x-3)', evaluate=False)"
+    subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_raw_parse_keeps_student_structure() -> None:
+    raw = parse_math("5 - (x - 3)", evaluate=False)
+    assert isinstance(raw, Expression)
+    assert raw.expr != 8 - x  # not distributed
+    assert raw.expr.doit() == 8 - x

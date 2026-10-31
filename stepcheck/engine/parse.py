@@ -8,6 +8,7 @@ evaluates to `False`, and `\\pm` becomes a variable named `pm`.
 
 import re
 import warnings
+from contextlib import nullcontext
 
 import sympy as sp
 from sympy.core.function import AppliedUndef
@@ -15,10 +16,22 @@ from sympy.parsing.latex import parse_latex
 from sympy.parsing.latex.errors import LaTeXParsingError
 
 from stepcheck.engine.model import Disjunction, Equation, Expression, MathObject, Step
+from stepcheck.engine.rewrite import flatten
 
 
 class ParseError(ValueError):
     """A line could not be turned into a supported math object."""
+
+
+def _warm_up_parser() -> None:
+    """parse_latex lazily imports sympy.physics on first use, and that import crashes if it
+    happens inside `sp.evaluate(False)`. Trigger it now, with normal evaluation."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        parse_latex("x")
+
+
+_warm_up_parser()
 
 
 _OR_SEPARATOR = "\x00"
@@ -104,42 +117,51 @@ def _make_symbols_real(expr: sp.Expr) -> sp.Expr:
     return expr.xreplace({s: sp.Symbol(s.name, real=True) for s in expr.free_symbols})
 
 
-def parse_expression(latex: str) -> sp.Expr:
+def parse_expression(latex: str, evaluate: bool = True) -> sp.Expr:
+    """Parse one expression.
+
+    evaluate=True gives the normalized value used for checking. evaluate=False keeps what the
+    student literally wrote (`-(x-3)` stays a negated bracket instead of becoming `3 - x`),
+    which the diagnosis needs to recognize misconceptions.
+    """
     if not latex:
         raise ParseError("empty expression")
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            result = parse_latex(latex)
-    except (LaTeXParsingError, TypeError, ValueError) as exc:
-        raise ParseError(f"could not parse '{latex}'") from exc
-    if not isinstance(result, sp.Expr):
-        raise ParseError(f"'{latex}' is not an expression")
-    # parse_latex returns an *unevaluated* tree (1/0 stays as-is); evaluate it.
-    expr = _repair_implicit_products(result.doit())
-    expr = _floats_to_rationals(expr)
-    expr = _make_symbols_real(expr)
-    if expr.has(sp.zoo, sp.nan, sp.oo, -sp.oo):
+    with nullcontext() if evaluate else sp.evaluate(False):
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                result = parse_latex(latex)
+        except (LaTeXParsingError, TypeError, ValueError) as exc:
+            raise ParseError(f"could not parse '{latex}'") from exc
+        if not isinstance(result, sp.Expr):
+            raise ParseError(f"'{latex}' is not an expression")
+        # parse_latex returns a partly unevaluated tree (1/0 stays as-is); evaluate it.
+        expr = _repair_implicit_products(result.doit() if evaluate else result)
+        expr = _floats_to_rationals(expr)
+        expr = _make_symbols_real(expr)
+        if not evaluate:
+            expr = flatten(expr)
+    if evaluate and expr.has(sp.zoo, sp.nan, sp.oo, -sp.oo):
         raise ParseError(f"'{latex}' is undefined (division by zero?)")
     return expr
 
 
-def _parse_equation_or_expression(latex: str) -> Equation | Expression:
+def _parse_equation_or_expression(latex: str, evaluate: bool) -> Equation | Expression:
     sides = split_top_level(latex, "=")
     if len(sides) == 1:
-        return Expression(parse_expression(sides[0]))
+        return Expression(parse_expression(sides[0], evaluate))
     if len(sides) == 2:
-        return Equation(parse_expression(sides[0]), parse_expression(sides[1]))
+        return Equation(parse_expression(sides[0], evaluate), parse_expression(sides[1], evaluate))
     raise ParseError("chained equalities (a = b = c) are not supported; put each on its own line")
 
 
-def parse_math(latex: str) -> MathObject:
+def parse_math(latex: str, evaluate: bool = True) -> MathObject:
     s = normalize_latex(latex)
     if any(rel in s for rel in _UNSUPPORTED_RELATIONS):
         raise ParseError("inequalities are not supported yet")
     if s.startswith("="):
         # Continuation line in a simplification chain: "= 2x + 2".
-        return Expression(parse_expression(s[1:].strip()))
+        return Expression(parse_expression(s[1:].strip(), evaluate))
 
     disjuncts = [
         variant
@@ -149,7 +171,7 @@ def parse_math(latex: str) -> MathObject:
     ]
     if not disjuncts:
         raise ParseError("empty line")
-    parsed = [_parse_equation_or_expression(d) for d in disjuncts]
+    parsed = [_parse_equation_or_expression(d, evaluate) for d in disjuncts]
     if len(parsed) == 1:
         return parsed[0]
     equations = tuple(p for p in parsed if isinstance(p, Equation))
@@ -173,4 +195,4 @@ def parse_line(latex: str, line_no: int) -> Step:
         obj = parse_math(latex)
     except ParseError as exc:
         return Step(line_no, latex, None, str(exc))
-    return Step(line_no, latex, obj)
+    return Step(line_no, latex, obj, raw=parse_math(latex, evaluate=False))

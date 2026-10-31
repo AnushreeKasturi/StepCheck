@@ -11,9 +11,9 @@ FIXTURES = Path(__file__).parent / "fixtures"
     ("fixture", "exit_code", "expected"),
     [
         ("correct_quadratic.txt", 0, "CORRECT"),
-        ("sign_error.txt", 1, "first mistake is on line 2"),
-        ("divide_by_x.txt", 1, "loses solution(s) {0}"),
-        ("simplify_error.txt", 1, "differ at x = 1"),
+        ("sign_error.txt", 1, "[sign error] Line 2: Sign error"),
+        ("divide_by_x.txt", 1, "You divided both sides by x"),
+        ("simplify_error.txt", 1, "[power of sum]"),
         ("squaring_correct.txt", 0, "correctly rejects extraneous {1}"),
     ],
 )

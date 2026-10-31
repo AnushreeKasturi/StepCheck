@@ -64,3 +64,66 @@ there was exactly one unverified step, it must contain the mistake.
 - Decimal approximations (`x = 1.414` for sqrt(2)) are treated as exact, so they are flagged.
 - Expression <-> equation steps (writing `(x-2)(x+2)` under `x^2-4=0`) are not compared.
 - One variable per solution; no inequalities or systems.
+
+---
+
+# Design decisions (Phase 2: diagnosis and evaluation)
+
+## 8. Two searches: forward mutations and backward repairs
+- **Forward** (`mutations.py`): apply a known mistake ("mal-rule", as in the intelligent
+  tutoring literature) to line k-1 and see if it reproduces line k. Names misconceptions:
+  partial distribution, (a+b)^2 -> a^2+b^2, moving a term without changing its sign, ...
+- **Backward** (`repairs.py`): make one small edit to the student's line k (a number off by
+  1 or 2, one sign, one coefficient) and see if it becomes a valid step. Catches slips in the
+  *result*, which forward search cannot reproduce, and gives the corrected line for free.
+
+## 9. Mutations run on what the student literally wrote
+SymPy normally evaluates `-(x - 3)` to `3 - x` at once, which erases the misconception. Each
+line is therefore also parsed with `sp.evaluate(False)` (`Step.raw`). Nested sums are
+flattened so "a term" means what a student means by it.
+*Regression:* `parse_latex` lazily imports `sympy.physics` on first use, and that import
+crashes inside `evaluate(False)`. The parser is now warmed up at import time.
+
+## 10. Matching by equivalence, ranked by how well the shape fits
+A candidate matches if it is *equivalent* to the student's line, not identical, so a mistake
+combined with correct simplification in the same line is still recognized. For equations,
+"equivalent" means the same equation up to a constant factor, which is stricter than equal
+solution sets (two different wrong linear equations often share their one solution).
+When several explanations fit, they are ranked:
+1. **strong** forward match: equivalent side by side, so it also explains the line's shape;
+2. **repair**: a one-symbol edit makes the line correct;
+3. **weak** forward match: equal only after rearranging, which can be a coincidence;
+then by a fixed specificity order (named misconception before generic sign error).
+*Example:* for `5 - (x-3) = 2 -> 5 - x - 3 = 2`, "moved a term without changing its sign"
+also fits algebraically, but only the sign error explains the shape: the student moved nothing.
+*Measured:* ranking weak forward matches above repairs instead lowered dev-set type accuracy
+from 99.7% to 98.4% (39 sign errors were explained by coincidental "moved term" matches).
+*Known gap:* when a student does two moves in one line and only one is wrong, the right
+explanation is only a weak match and a coincidental coefficient repair can win (7 of 2,876
+dev errors).
+
+## 11. Special cases outside the search
+- **Divided by zero:** a LOST-solutions step where line k-1 equals line k times a polynomial
+  that vanishes at the lost values. *Regression:* a rational ratio such as (x-2)/(x+2) used to
+  pass and turned factoring sign errors into "divided by zero".
+- **Extraneous root kept:** from Phase 1's implication rule; only used when no mistake in the
+  catalog explains the extra solutions better.
+
+## 12. The suggested correction is checked by the checker itself
+A test runs every diagnosis's "the line should be ..." through `check_solution`. Telling a
+student to write something wrong would be worse than saying nothing.
+
+## 13. Benchmark design
+- **Independent generator.** `eval/generate.py` has its own simulated student with its own
+  faulty operations and must not import the engine (a test enforces this via the AST).
+  Otherwise type accuracy would only show the engine agreeing with itself.
+- **Every injected error is verified** with SymPy to change the math. *Regression:* dividing
+  0 by 2 instead of -2 was labelled a sign error although -0 = 0.
+- **Errors carry forward:** after a mistake, the simulated student keeps solving correctly
+  from the wrong line, like a real student.
+- **No mislabelled slips:** an "off by 2" slip that lands on -value is really a sign error, so
+  the generator does not produce it.
+- **Dev/test split:** the engine was tuned on failures from seed 0; reported numbers come from
+  seed 1, generated once and not inspected for tuning.
+- Rates are reported with 95% Wilson intervals: "0 false alarms in 1,500" still means
+  "at most ~0.25%", not "exactly 0%".

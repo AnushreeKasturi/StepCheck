@@ -5,6 +5,7 @@ from dataclasses import replace
 
 import sympy as sp
 
+from stepcheck.engine.diagnose import diagnose
 from stepcheck.engine.equivalence import expressions_equivalent
 from stepcheck.engine.model import (
     ERROR_VERDICTS,
@@ -151,7 +152,9 @@ def check_solution(lines: Sequence[str]) -> CheckResult:
 
     first_error = next((c for c in checks if c.is_error), None)
     if first_error is not None:
-        return CheckResult(steps, checks, "error", first_error.to_line)
+        before, after = steps[first_error.from_line - 1], steps[first_error.to_line - 1]
+        diagnosis = diagnose(before, after, first_error, x)
+        return CheckResult(steps, checks, "error", first_error.to_line, diagnosis=diagnosis)
     if len(readable) < 2:
         return CheckResult(steps, checks, "unverified", None)
 
