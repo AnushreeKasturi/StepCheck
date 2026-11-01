@@ -14,6 +14,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "hypothesis", "ruff", "mypy"]
+# Local handwriting OCR. rapidocr is pinned because cnstd (a Pix2Text dependency) imports a
+# function that rapidocr 3.10 renamed.
+ocr = ["pix2text==1.1.7", "rapidocr==3.9.2"]
 
 [tool.setuptools.packages.find]
 include = ["stepcheck*"]
@@ -30,7 +33,7 @@ strict = true
 packages = ["stepcheck"]
 
 [[tool.mypy.overrides]]
-module = ["sympy.*", "antlr4.*"]
+module = ["sympy.*", "antlr4.*", "pix2text.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
